@@ -7,7 +7,7 @@ while ($true) {
 
     git push
 
-    Write-Output "Done. Sleeping for 10 minutes..."
+    Write-Output "Done. Sleeping for 100 seconds..."
 
-    Start-Sleep -Seconds 600  # 10 minutes
+    Start-Sleep -Seconds 100  # 10 minutes
 }
