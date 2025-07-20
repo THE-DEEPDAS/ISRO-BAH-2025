@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from tqdm import tqdm
 
-API_KEY = "me-nhi-batunga"
+API_KEY = "573449fef84af782b345ec8aadd"
 HEADERS = {"X-API-Key": API_KEY}
 
 MAJOR_CITIES = ["Delhi", "Mumbai", "Kolkata", "Chennai", "Bangalore"]
