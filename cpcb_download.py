@@ -1,114 +1,249 @@
 import requests
 import pandas as pd
+import os
 import time
 from datetime import datetime
-from tqdm import tqdm
 
-API_KEY = "573449fef84af782b345ec8aadd"
-HEADERS = {"X-API-Key": API_KEY}
+# Configuration
+API_KEY = "573449fef84af782b345ec8aadd217e24d20dafd65f6865d4e83ab6871f4fd33"  # Set this if required, else keep None
+OUTPUT_DIR = "openaq_data"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-MAJOR_CITIES = ["Delhi", "Mumbai", "Kolkata", "Chennai", "Bangalore"]
-START_DATE = "2025-01-18"
-END_DATE = "2025-06-18"
-PARAMS = ["pm25", "pm10", "rh", "temp", "ws"]
+# Rate limiting
+REQUEST_DELAY = 1  # seconds between requests
 
-BASE_URL = "https://api.openaq.org/v3"
+# Important parameters for PM prediction
+IMPORTANT_PARAMETERS = {
+    'pm25': 'PM2.5',
+    'pm10': 'PM10', 
+    'no2': 'NO2',
+    'so2': 'SO2',
+    'o3': 'Ozone',
+    'temperature': 'Temperature',
+    'relativehumidity': 'Relative Humidity',
+    'pressure': 'Atmospheric Pressure',
+    'ws': 'Wind Speed',
+    'wd': 'Wind Direction'
+}
 
-def get_city_location_ids(city_name):
-    """Get location IDs for a city."""
-    location_ids = []
+# Date range - let's use a shorter, more recent range to test
+date_from = "2025-01-01T00:00:00Z"
+date_to = "2025-01-31T23:59:59Z"
+limit = 1000  # Reduced limit to avoid overwhelming the API
+
+# Headers
+headers = {"x-api-key": API_KEY} if API_KEY else {}
+
+# Location IDs to fetch data for
+location_ids = [301387, 11579, 6981, 234568, 278671]
+
+def filter_important_sensors(sensors):
+    """Filter sensors to only include those with important parameters for PM prediction"""
+    important_sensors = []
+    
+    for sensor in sensors:
+        parameter_info = sensor.get('parameter', {})
+        parameter_name = parameter_info.get('name', '').lower()
+        
+        # Check if this parameter is in our important list
+        if parameter_name in IMPORTANT_PARAMETERS:
+            important_sensors.append(sensor)
+    
+    return important_sensors
+
+def get_sensors_for_location(location_id):
+    """Get all sensors for a specific location"""
+    url = f"https://api.openaq.org/v3/locations/{location_id}/sensors"
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        time.sleep(REQUEST_DELAY)  # Rate limiting
+        return data.get("results", [])
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 422:
+            print(f"❌ Location {location_id} not found or invalid")
+        else:
+            print(f"❌ HTTP Error fetching sensors for location {location_id}: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Error fetching sensors for location {location_id}: {e}")
+        return []
+
+def fetch_measurements_for_sensor(sensor_id):
+    """Fetch hourly aggregated measurements for a specific sensor using the correct endpoint"""
     page = 1
+    all_results = []
+    
     while True:
-        response = requests.get(f"{BASE_URL}/locations", headers=HEADERS, params={
-            "city": city_name,
-            "limit": 100,
-            "page": page
-        })
-        if response.status_code != 200:
-            print(f"❌ Failed to fetch locations for {city_name}: {response.status_code}")
-            break
-
-        data = response.json().get("results", [])
-        if not data:
-            break
-
-        location_ids.extend([loc["id"] for loc in data])
-        if len(data) < 100:
-            break
-        page += 1
-        time.sleep(0.2)
-    return location_ids
-
-def fetch_measurements(location_id, parameter):
-    """Fetch daily measurements for a given location and parameter."""
-    results = []
-    page = 1
-    while True:
-        response = requests.get(f"{BASE_URL}/measurements", headers=HEADERS, params={
-            "location_id": location_id,
-            "parameter": parameter,
-            "date_from": START_DATE,
-            "date_to": END_DATE,
-            "limit": 100,
+        # Use the correct endpoint for hourly aggregated measurements
+        url = f"https://api.openaq.org/v3/sensors/{sensor_id}/measurements/hourly"
+        params = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "limit": limit,
             "page": page,
-            "aggregate": "day"
-        })
-        if response.status_code == 404:
+        }
+        
+        try:
+            time.sleep(REQUEST_DELAY)  # Rate limiting
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            results = data.get("results", [])
+            if not results:
+                break
+                
+            all_results.extend(results)
+            print(f"  📊 Page {page}: Got {len(results)} hourly records")
+            
+            # Simple pagination check - if we get fewer results than limit, we're done
+            if len(results) < limit:
+                break
+                
+            page += 1
+            
+            # Safety check to avoid infinite loops
+            if page > 100:  # Reasonable limit for hourly data
+                print(f"  ⚠️  Reached page limit, stopping")
+                break
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 422:
+                print(f"  ⚠️  No hourly data available for sensor {sensor_id} in date range")
+            elif e.response.status_code == 429:
+                print(f"  ⏳ Rate limited, waiting 5 seconds...")
+                time.sleep(5)
+                continue  # Retry the same request
+            else:
+                print(f"  ❌ HTTP Error {e.response.status_code} for sensor {sensor_id}")
             break
-        elif response.status_code != 200:
-            print(f"❌ Error {response.status_code} for param {parameter} at location {location_id}")
+        except Exception as e:
+            print(f"  ❌ Error fetching hourly data for sensor {sensor_id}: {e}")
             break
-        data = response.json().get("results", [])
-        if not data:
-            break
-        results.extend(data)
-        if len(data) < 100:
-            break
-        page += 1
-        time.sleep(0.2)
-    return results
+    
+    return all_results
 
-def main():
-    records = []
+def clean_measurement_data(measurements):
+    """Clean and standardize measurement data"""
+    cleaned_data = []
+    
+    for measurement in measurements:
+        try:
+            # Extract key fields
+            value = measurement.get('value')
+            datetime_utc = measurement.get('datetime', {}).get('utc')
+            
+            # Skip invalid measurements
+            if value is None or datetime_utc is None:
+                continue
+                
+            # Skip obviously invalid values (negative concentrations, extreme values)
+            if value < 0 or value > 10000:  # Adjust threshold as needed
+                continue
+            
+            cleaned_record = {
+                'datetime_utc': datetime_utc,
+                'value': value,
+                'parameter': measurement.get('parameter', 'unknown'),
+                'unit': measurement.get('unit', 'unknown'),
+                'sensor_id': measurement.get('sensor_id'),
+                'location_id': measurement.get('location_id'),
+                'coordinates': measurement.get('coordinates', {}),
+                'summary': measurement.get('summary', {})
+            }
+            
+            cleaned_data.append(cleaned_record)
+            
+        except Exception as e:
+            print(f"  ⚠️  Error cleaning measurement: {e}")
+            continue
+    
+    return cleaned_data
 
-    for city in MAJOR_CITIES:
-        print(f"🌆 Processing city: {city}")
-        loc_ids = get_city_location_ids(city)
-        print(f"🧭 Found {len(loc_ids)} locations for {city}")
+def fetch_hourly_data_for_sensor(sensor_id):
+    """Fetch hourly averaged data for a specific sensor (alternative method name for compatibility)"""
+    return fetch_measurements_for_sensor(sensor_id)
 
-        for loc_id in tqdm(loc_ids, desc=f"📍 {city}"):
-            for param in PARAMS:
-                try:
-                    data = fetch_measurements(loc_id, param)
-                    for r in data:
-                        records.append({
-                            "city": city,
-                            "location_id": loc_id,
-                            "location_name": r.get("location"),
-                            "latitude": r.get("coordinates", {}).get("latitude"),
-                            "longitude": r.get("coordinates", {}).get("longitude"),
-                            "date": r["date"]["utc"][:10],
-                            "parameter": r["parameter"],
-                            "value": r["value"],
-                            "unit": r["unit"]
-                        })
-                except Exception as e:
-                    print(f"⚠️ Error for {city} loc {loc_id} param {param}: {e}")
-                time.sleep(0.1)
+def process_all_locations():
+    """Process all locations and fetch their sensor measurements"""
+    for loc_id in location_ids:
+        print(f"🔍 Processing location {loc_id}...")
+        
+        # Get all sensors for this location
+        sensors = get_sensors_for_location(loc_id)
+        
+        if not sensors:
+            print(f"⚠️  No sensors found for location {loc_id}")
+            continue
+        
+        # Filter to only important parameters
+        important_sensors = filter_important_sensors(sensors)
+        
+        if not important_sensors:
+            print(f"⚠️  No important sensors found for location {loc_id}")
+            continue
+            
+        print(f"📡 Found {len(important_sensors)} important sensors (out of {len(sensors)} total)")
+        
+        # Show which parameters we found
+        found_params = [s.get('parameter', {}).get('name', 'unknown') for s in important_sensors]
+        print(f"🎯 Parameters: {', '.join(found_params)}")
+        
+        all_location_data = []
+        
+        # Fetch measurements for each important sensor
+        for i, sensor in enumerate(important_sensors, 1):
+            sensor_id = sensor.get('id')
+            parameter_info = sensor.get('parameter', {})
+            parameter_name = parameter_info.get('name', 'unknown')
+            
+            print(f"📥 [{i}/{len(important_sensors)}] Fetching sensor {sensor_id} (parameter: {parameter_name})")
+            
+            measurements = fetch_measurements_for_sensor(sensor_id)
+            
+            if measurements:
+                # Add sensor info to each measurement for context
+                for measurement in measurements:
+                    measurement['sensor_id'] = sensor_id
+                    measurement['location_id'] = loc_id
+                    measurement['parameter'] = parameter_name
+                    
+                all_location_data.extend(measurements)
+                print(f"✅ Got {len(measurements)} total measurements for sensor {sensor_id}")
+            else:
+                print(f"⚠️  No measurements for sensor {sensor_id}")
+        
+        # Clean and save data for this location
+        if all_location_data:
+            # Clean the data
+            cleaned_data = clean_measurement_data(all_location_data)
+            
+            if cleaned_data:
+                df = pd.DataFrame(cleaned_data)
+                
+                # Sort by datetime for better analysis
+                df['datetime_utc'] = pd.to_datetime(df['datetime_utc'])
+                df = df.sort_values('datetime_utc')
+                
+                # Save cleaned data
+                filename = f"location_{loc_id}_cleaned.csv"
+                filepath = os.path.join(OUTPUT_DIR, filename)
+                df.to_csv(filepath, index=False)
+                
+                # Show summary of what we got
+                param_counts = df['parameter'].value_counts()
+                print(f"✅ Saved {len(df)} cleaned records to {filename}")
+                print("📊 Parameter breakdown:")
+                for param, count in param_counts.items():
+                    print(f"   - {param}: {count} measurements")
+            else:
+                print(f"⚠️  No valid data after cleaning for location {loc_id}")
+        else:
+            print(f"⚠️  No data found for location {loc_id}")
+        
+        print(f"{'='*50}")
 
-    df = pd.DataFrame(records)
-    if df.empty:
-        print("❌ No data collected.")
-        return
-
-    print("📊 Structuring data...")
-    df_pivot = df.pivot_table(
-        index=["city", "location_id", "location_name", "latitude", "longitude", "date"],
-        columns="parameter", values="value"
-    ).reset_index()
-
-    df_pivot.to_csv("major_cities_air_quality.csv", index=False)
-    print("✅ Saved to major_cities_air_quality.csv")
-
-main()
-
+if __name__ == "__main__":
+    process_all_locations()
