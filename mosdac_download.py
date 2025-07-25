@@ -3,9 +3,9 @@ import os
 
 MOSDAC_HOST = 'download.mosdac.gov.in'
 MOSDAC_PORT = 22
-USERNAME = 'swapna_0'  
-PASSWORD = 'swapna65@K' 
-REQUEST_ID = 'Jul25_137795'      
+USERNAME = 'use yours'  
+PASSWORD = 'use yours' 
+REQUEST_ID = 'use yours'      
 LOCAL_DOWNLOAD_DIR = 'mosdac_swapna'  
 
 cnopts = pysftp.CnOpts()
