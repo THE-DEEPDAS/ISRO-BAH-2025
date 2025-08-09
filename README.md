@@ -74,3 +74,9 @@ If you use this project, please consider citing or acknowledging the authors and
 ## 📎 License
 
 This project is for research use only. Please refer to respective data providers' terms of use for redistribution rights.
+
+
+## Merging the data
+for merging the data main thing is that this .nc4 and .h5 images have coordinates in them
+
+so we need to extract the coordinates from which we have taken the CPCB data and find the AOD and reanlysis data's values for that location and add that values in the merged dataframe
