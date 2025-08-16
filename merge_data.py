@@ -26,7 +26,14 @@ def load_cpcb(folder):
     all_dfs = []
     for csv_file in folder.glob("*.csv"):
         site_name = csv_file.stem
-        df = pd.read_csv(csv_file, parse_dates=["date"])
+        df = pd.read_csv(csv_file)
+        # Parse datetime columns and create a 'date' column (date only)
+        if "period.datetimeFrom.local" in df.columns:
+            df["date"] = pd.to_datetime(df["period.datetimeFrom.local"]).dt.date
+        elif "period.datetimeTo.local" in df.columns:
+            df["date"] = pd.to_datetime(df["period.datetimeTo.local"]).dt.date
+        else:
+            raise ValueError("No datetime column found in CPCB file: " + str(csv_file))
         df["site"] = site_name
         all_dfs.append(df)
     return pd.concat(all_dfs, ignore_index=True)
