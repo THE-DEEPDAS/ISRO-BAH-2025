@@ -1,4 +1,4 @@
-We are Team SVNIT Coders, We(Bodhini, Deep and Swapna) participated in the ISRO's BAH 2025 competition and this repo has the dataset you would need for its PS3
+We are Team SVNIT Coders, We (Bodhini, Deep and Swapna) participated in the ISRO's BAH 2025 competition and this repo has the dataset you would need for its PS3
 
 We have also mentioned approach in the PPT you can use that but we haven't completed the project due to time limitations.
 
